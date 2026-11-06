@@ -78,6 +78,10 @@
         color: var(--blush);
       }
 
+      .topbar.is-solid {
+        background: rgb(28 17 22 / 0.92);
+      }
+
       .order {
         padding: 10px 20px;
         border: 1px solid rgb(255 246 244 / 0.55);
@@ -133,6 +137,14 @@
         text-shadow: 0 2px 22px rgb(0 0 0 / 0.65);
       }
 
+      .beat::before {
+        content: '';
+        position: absolute;
+        inset: -46px -72px;
+        z-index: -1;
+        background: radial-gradient(closest-side, rgb(20 10 14 / 0.72), rgb(20 10 14 / 0.46) 58%, rgb(20 10 14 / 0));
+      }
+
       .beat__eyebrow {
         margin: 0 0 8px;
         font-size: 13px;
@@ -152,13 +164,14 @@
       }
 
       .beat em {
-        color: var(--blush);
+        color: #ffd6da;
         font-style: italic;
       }
 
       .beat__text {
         margin: 14px 0 0;
         font-size: clamp(16px, 1.3vw, 19px);
+        font-weight: 400;
         line-height: 1.55;
         color: var(--ink);
       }
@@ -177,14 +190,13 @@
       }
 
       .beat--right {
-        top: 50%;
         right: clamp(16px, 6vw, 88px);
+        bottom: 9%;
         text-align: right;
-        translate: 0 -50%;
       }
 
       .beat--bottom {
-        bottom: 12%;
+        bottom: 5%;
         left: 50%;
         text-align: center;
         translate: -50% 0;
@@ -412,7 +424,7 @@
         .beat--right {
           top: auto;
           right: auto;
-          bottom: 13%;
+          bottom: 10%;
           left: 50%;
           text-align: center;
           translate: -50% 0;
@@ -432,7 +444,7 @@
     <script src="scroll-film.js" type="module"></script>
   </head>
   <body>
-    <header class="topbar">
+    <header class="topbar" id="topbar">
       <a class="brand" href="#top">Unique<em> Cake &amp; Cafe</em></a>
       <a class="order" href="https://www.clover.com/online-ordering/unique-cake--cafe-oshawa" target="_blank" rel="noopener">Order Online</a>
     </header>
@@ -442,7 +454,7 @@
         <div class="film__stage">
           <canvas class="film__canvas" id="film-canvas" role="img" aria-label="Walking from the Unique Cake and Cafe storefront through the pink lounge to a strawberry cream cake on a marble table"></canvas>
 
-          <div class="beat beat--center" data-start="0" data-end="0.13">
+          <div class="beat beat--left" data-start="0" data-end="0.13">
             <p class="beat__eyebrow">Visit</p>
             <h1>Come in <em>&amp; unwind</em></h1>
             <p class="beat__text">Look for the pink cake sign — inside, a quiet table and a fresh latte are waiting.</p>

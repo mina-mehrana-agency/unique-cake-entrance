@@ -6,6 +6,7 @@ const FADE = 0.04; // Share of the film each caption takes to fade in or out.
 const TRAVEL = 40; // Pixels a caption drifts while it fades.
 
 const film = document.getElementById('film');
+const topbar = document.getElementById('topbar');
 const canvas = document.getElementById('film-canvas');
 const context = canvas.getContext('2d', { alpha: false });
 const progressBar = document.getElementById('progress');
@@ -84,6 +85,7 @@ function tick() {
 
 function handleScroll() {
   state.target = scrollProgress() * (state.total - 1);
+  topbar.classList.toggle('is-solid', film.getBoundingClientRect().bottom <= window.innerHeight);
   if (!state.raf) state.raf = requestAnimationFrame(tick);
 }
 
