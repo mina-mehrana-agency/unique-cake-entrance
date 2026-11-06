@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="is-waiting">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -56,6 +56,14 @@
 
       html {
         scroll-behavior: auto;
+      }
+
+      /* Nothing moves until the whole film is in memory. */
+      html.is-waiting,
+      html.is-waiting body {
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
       }
 
       body {
@@ -142,6 +150,11 @@
         height: 100%;
         display: block;
         object-fit: cover;
+        visibility: hidden;
+      }
+
+      .film__canvas.is-ready {
+        visibility: visible;
       }
 
       /* Keeps the words readable over bright walls without dimming the whole picture. */
@@ -240,6 +253,8 @@
         font-size: 13px;
         letter-spacing: 0.14em;
         text-shadow: 0 1px 10px rgb(0 0 0 / 0.7);
+        opacity: 0;
+        transition: opacity 0.4s ease;
       }
 
       .progress {
@@ -464,7 +479,7 @@
     <main id="top">
       <section class="film" id="film" aria-label="A walk from the storefront to your table">
         <div class="film__stage">
-          <video class="film__canvas" id="film-video" src="film.mp4" muted playsinline preload="auto" tabindex="-1" aria-label="Walking from the Unique Cake and Cafe storefront through the pink lounge to a strawberry cream cake on a marble table"></video>
+          <video class="film__canvas" id="film-video" muted playsinline preload="auto" tabindex="-1" aria-label="Walking from the Unique Cake and Cafe storefront through the pink lounge to a strawberry cream cake on a marble table"></video>
 
           <div class="beat beat--left" data-start="0" data-end="0.13">
             <p class="beat__eyebrow">Visit</p>

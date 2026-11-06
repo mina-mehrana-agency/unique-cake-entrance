@@ -4,4 +4,4 @@ A sample section. Scrolling walks from the storefront, through the lounge, to a 
 
 Live page: https://mina-mehrana-agency.github.io/unique-cake-entrance/
 
-The camera move is AI-generated from the cafe's real photos, so some details differ from the real room. It is a sample for review and is not meant for search engines. Text and details come from uniquecakeandcafe.online.
+The film downloads in full before the page can scroll, so it always plays smoothly. The camera move is AI-generated from the cafe's real photos, so some details differ from the real room. It is a sample for review and is not meant for search engines. Text and details come from uniquecakeandcafe.online.

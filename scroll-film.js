@@ -1,14 +1,15 @@
-// Plays one camera move with the scrollbar. A single video streams in the background, so
-// no loading steps show. If someone scrolls ahead of the download, the film eases along
-// behind them and catches up instead of jumping.
+// Plays one camera move with the scrollbar. The whole film downloads before it can start:
+// until then the opening picture stays still and the page cannot scroll, so a visitor never
+// sees a half-loaded film. Once it is in memory, every scroll position shows at once.
 
+const FILM_FILE = 'film.mp4';
+const GIVE_UP_MS = 60000; // After this the page opens without the film, so nobody gets stuck.
 const SMOOTHING = 0.12; // Share of the remaining distance covered per frame.
 const SEEK_STEP = 1 / 30; // Smallest change in seconds worth a new seek.
-const BUFFER_MARGIN = 0.6; // Seconds kept back from the end of the downloaded part.
-const STALL_MS = 1500; // How long the download may sit still before seeking past it.
 const FADE = 0.04; // Share of the film each caption takes to fade in or out.
 const TRAVEL = 40; // Pixels a caption drifts while it fades.
 
+const root = document.documentElement;
 const film = document.getElementById('film');
 const topbar = document.getElementById('topbar');
 const video = document.getElementById('film-video');
@@ -21,7 +22,7 @@ const beats = [...document.querySelectorAll('.beat')].map((element) => ({
 }));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const state = { duration: 0, target: 0, position: 0, raf: 0, bufferEnd: 0, bufferMoved: 0 };
+const state = { duration: 0, target: 0, position: 0, raf: 0, opened: false };
 
 function scrollProgress() {
   const bounds = film.getBoundingClientRect();
@@ -37,33 +38,14 @@ function poseCaptions(progress) {
     element.style.opacity = opacity.toFixed(3);
     element.style.transform = `translateY(${((1 - fadeIn) * TRAVEL - (1 - fadeOut) * TRAVEL).toFixed(1)}px)`;
   });
-  hint.style.opacity = Math.max(0, 1 - progress * 40).toFixed(3);
+  hint.style.opacity = state.opened ? Math.max(0, 1 - progress * 40).toFixed(3) : '0';
   progressBar.style.transform = `scaleX(${progress.toFixed(4)})`;
 }
 
-// How far the film can go without showing a pause for data.
-function readableEnd(now) {
-  const { buffered } = video;
-  let end = 0;
-  for (let index = 0; index < buffered.length; index += 1) {
-    if (buffered.start(index) <= state.position + 0.5) end = Math.max(end, buffered.end(index));
-  }
-
-  if (end >= state.duration - 0.1) return state.duration;
-  if (end > state.bufferEnd) {
-    state.bufferEnd = end;
-    state.bufferMoved = now;
-  }
-  // Some browsers stop fetching a paused video; a seek past the end restarts them.
-  if (now - state.bufferMoved > STALL_MS) return state.duration;
-  return Math.max(state.position, end - BUFFER_MARGIN);
-}
-
-function tick(now) {
-  const goal = Math.min(state.target, readableEnd(now));
-  const distance = goal - state.position;
+function tick() {
+  const distance = state.target - state.position;
   state.position += reducedMotion ? distance : distance * SMOOTHING;
-  if (Math.abs(distance) < 0.01) state.position = goal;
+  if (Math.abs(distance) < 0.01) state.position = state.target;
 
   const gap = Math.abs(video.currentTime - state.position);
   if (!video.seeking && gap >= SEEK_STEP) video.currentTime = state.position;
@@ -85,24 +67,65 @@ function handleScroll() {
   if (!state.raf) state.raf = requestAnimationFrame(tick);
 }
 
-function ready() {
-  state.duration = video.duration;
-  state.bufferMoved = performance.now();
+function openPage() {
+  if (state.opened) return;
+  state.opened = true;
+  root.classList.remove('is-waiting');
   handleScroll();
 }
 
-// Phones may not fetch a video until it has been asked to play once.
-function wakeVideo() {
-  const playing = video.play();
-  if (playing) playing.then(() => video.pause()).catch(() => {});
+function showDownload(share) {
+  if (!state.opened) progressBar.style.transform = `scaleX(${share.toFixed(4)})`;
 }
 
-window.addEventListener('scroll', handleScroll, { passive: true });
-window.addEventListener('resize', handleScroll);
-window.addEventListener('touchstart', wakeVideo, { once: true, passive: true });
+async function downloadFilm() {
+  const response = await fetch(FILM_FILE);
+  if (!response.ok) throw new Error(`Could not load ${FILM_FILE}`);
 
-if (video.readyState >= 1) ready();
-else video.addEventListener('loadedmetadata', ready, { once: true });
+  const total = Number(response.headers.get('Content-Length')) || 0;
+  const reader = response.body.getReader();
+  const pieces = [];
+  let received = 0;
 
-wakeVideo();
-handleScroll();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    pieces.push(value);
+    received += value.length;
+    if (total) showDownload(received / total);
+  }
+  return new Blob(pieces, { type: 'video/mp4' });
+}
+
+// Resolves once the film can show its first frame from memory.
+function loadIntoVideo(blob) {
+  return new Promise((resolve, reject) => {
+    video.addEventListener('loadeddata', resolve, { once: true });
+    video.addEventListener('error', () => reject(new Error('The film could not be read')), { once: true });
+    video.src = URL.createObjectURL(blob);
+    video.load();
+  });
+}
+
+async function start() {
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  window.scrollTo(0, 0);
+
+  window.addEventListener('scroll', handleScroll, { passive: true });
+  window.addEventListener('resize', handleScroll);
+  handleScroll();
+
+  // A very slow connection still gets the menu and the visit details, just without the film.
+  setTimeout(openPage, GIVE_UP_MS);
+
+  const blob = await downloadFilm();
+  await loadIntoVideo(blob);
+  state.duration = video.duration;
+  video.classList.add('is-ready');
+  openPage();
+}
+
+start().catch((error) => {
+  console.error(error);
+  openPage();
+});
