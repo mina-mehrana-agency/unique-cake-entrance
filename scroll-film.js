@@ -1,18 +1,19 @@
-// Plays a pre-rendered camera move with the scrollbar: each scroll position shows one frame.
+// Plays one camera move with the scrollbar. A single video streams in the background, so
+// no loading steps show. If someone scrolls ahead of the download, the film eases along
+// behind them and catches up instead of jumping.
 
-const SMOOTHING = 0.14; // Share of the remaining distance covered per frame.
-const LOAD_BATCH = 10;
-const WIDE_GAP_BLEND = 0.18; // Share of the gap used for the swap between frames far apart.
+const SMOOTHING = 0.12; // Share of the remaining distance covered per frame.
+const SEEK_STEP = 1 / 30; // Smallest change in seconds worth a new seek.
+const BUFFER_MARGIN = 0.6; // Seconds kept back from the end of the downloaded part.
+const STALL_MS = 1500; // How long the download may sit still before seeking past it.
 const FADE = 0.04; // Share of the film each caption takes to fade in or out.
 const TRAVEL = 40; // Pixels a caption drifts while it fades.
 
 const film = document.getElementById('film');
 const topbar = document.getElementById('topbar');
-const canvas = document.getElementById('film-canvas');
-const context = canvas.getContext('2d', { alpha: false });
+const video = document.getElementById('film-video');
 const progressBar = document.getElementById('progress');
 const hint = document.getElementById('hint');
-const loader = document.getElementById('loader');
 const beats = [...document.querySelectorAll('.beat')].map((element) => ({
   element,
   start: Number(element.dataset.start),
@@ -20,54 +21,12 @@ const beats = [...document.querySelectorAll('.beat')].map((element) => ({
 }));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const state = { frames: [], total: 0, width: 1, height: 1, target: 0, position: 0, raf: 0 };
-
-const frameUrl = (index) => `frames/${String(index + 1).padStart(4, '0')}.webp`;
+const state = { duration: 0, target: 0, position: 0, raf: 0, bufferEnd: 0, bufferMoved: 0 };
 
 function scrollProgress() {
   const bounds = film.getBoundingClientRect();
   const distance = bounds.height - window.innerHeight;
   return Math.min(1, Math.max(0, -bounds.top / distance));
-}
-
-function paint(image, alpha) {
-  const scale = Math.max(canvas.width / state.width, canvas.height / state.height);
-  const width = state.width * scale;
-  const height = state.height * scale;
-  context.globalAlpha = alpha;
-  context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
-}
-
-// Blends the two loaded frames around the scroll position, so the film stays smooth
-// between frames, and also while the frames in between are still downloading.
-function drawFilm() {
-  let lower = Math.floor(state.position);
-  let upper = Math.ceil(state.position);
-  while (lower >= 0 && !state.frames[lower]) lower -= 1;
-  while (upper < state.total && !state.frames[upper]) upper += 1;
-
-  const before = state.frames[lower];
-  const after = state.frames[upper];
-  if (!before && !after) return;
-
-  paint(before ?? after, 1);
-  if (before && after && upper !== lower) paint(after, blendAmount((state.position - lower) / (upper - lower), upper - lower));
-}
-
-// Neighbouring frames blend fully. Frames far apart would look like a double exposure,
-// so they swap quickly around the midpoint, and a resting picture is never blended.
-function blendAmount(share, gap) {
-  if (state.position === state.target) return share < 0.5 ? 0 : 1;
-  const width = gap > 1 ? WIDE_GAP_BLEND : 1;
-  return Math.min(1, Math.max(0, (share - 0.5) / width + 0.5));
-}
-
-function fitCanvas() {
-  const bounds = canvas.getBoundingClientRect();
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(bounds.width * ratio);
-  canvas.height = Math.round(bounds.height * ratio);
-  drawFilm();
 }
 
 function poseCaptions(progress) {
@@ -82,82 +41,68 @@ function poseCaptions(progress) {
   progressBar.style.transform = `scaleX(${progress.toFixed(4)})`;
 }
 
-function tick() {
-  const distance = state.target - state.position;
+// How far the film can go without showing a pause for data.
+function readableEnd(now) {
+  const { buffered } = video;
+  let end = 0;
+  for (let index = 0; index < buffered.length; index += 1) {
+    if (buffered.start(index) <= state.position + 0.5) end = Math.max(end, buffered.end(index));
+  }
+
+  if (end >= state.duration - 0.1) return state.duration;
+  if (end > state.bufferEnd) {
+    state.bufferEnd = end;
+    state.bufferMoved = now;
+  }
+  // Some browsers stop fetching a paused video; a seek past the end restarts them.
+  if (now - state.bufferMoved > STALL_MS) return state.duration;
+  return Math.max(state.position, end - BUFFER_MARGIN);
+}
+
+function tick(now) {
+  const goal = Math.min(state.target, readableEnd(now));
+  const distance = goal - state.position;
   state.position += reducedMotion ? distance : distance * SMOOTHING;
-  if (Math.abs(distance) < 0.05) state.position = state.target;
+  if (Math.abs(distance) < 0.01) state.position = goal;
 
-  drawFilm();
-  poseCaptions(state.position / Math.max(1, state.total - 1));
+  const gap = Math.abs(video.currentTime - state.position);
+  if (!video.seeking && gap >= SEEK_STEP) video.currentTime = state.position;
+  poseCaptions(state.position / state.duration);
 
-  state.raf = state.position === state.target ? 0 : requestAnimationFrame(tick);
+  const done = state.position === state.target && !video.seeking && gap < SEEK_STEP;
+  state.raf = done ? 0 : requestAnimationFrame(tick);
 }
 
 function handleScroll() {
-  state.target = scrollProgress() * (state.total - 1);
+  const progress = scrollProgress();
   topbar.classList.toggle('is-solid', film.getBoundingClientRect().bottom <= window.innerHeight);
+
+  if (!state.duration) {
+    poseCaptions(progress);
+    return;
+  }
+  state.target = progress * state.duration;
   if (!state.raf) state.raf = requestAnimationFrame(tick);
 }
 
-function loadFrame(index) {
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      state.frames[index] = image;
-      resolve();
-    };
-    image.onerror = () => resolve();
-    image.src = frameUrl(index);
-  });
-}
-
-// Fetches a coarse pass first, so the whole film works early, then fills the gaps quietly.
-async function loadAll() {
-  const order = [state.total - 1];
-  for (const step of [8, 4, 2, 1]) {
-    for (let index = 0; index < state.total; index += step) {
-      if (!order.includes(index)) order.push(index);
-    }
-  }
-
-  const coarse = Math.ceil(state.total / 8);
-  let done = 0;
-  while (order.length > 0) {
-    // After the coarse pass, fill in around wherever the visitor is now.
-    if (done >= coarse) {
-      order.sort((a, b) => Math.abs(a - state.target) - Math.abs(b - state.target));
-    }
-    const batch = order.splice(0, LOAD_BATCH);
-    await Promise.all(batch.map(loadFrame));
-    done += batch.length;
-    if (done >= coarse) loader.hidden = true;
-    else loader.textContent = `Loading ${Math.round((done / coarse) * 100)}%`;
-    if (!state.raf) drawFilm();
-  }
-}
-
-async function start() {
-  const manifest = await (await fetch('frames/manifest.json')).json();
-  state.total = manifest.frames;
-  state.width = manifest.width;
-  state.height = manifest.height;
-
-  await loadFrame(0);
-  fitCanvas();
-  loader.hidden = false;
+function ready() {
+  state.duration = video.duration;
+  state.bufferMoved = performance.now();
   handleScroll();
-
-  window.addEventListener('scroll', handleScroll, { passive: true });
-  window.addEventListener('resize', () => {
-    fitCanvas();
-    handleScroll();
-  });
-
-  await loadAll();
 }
 
-start().catch((error) => {
-  console.error(error);
-  loader.hidden = false;
-  loader.textContent = 'The film could not load. Please refresh.';
-});
+// Phones may not fetch a video until it has been asked to play once.
+function wakeVideo() {
+  const playing = video.play();
+  if (playing) playing.then(() => video.pause()).catch(() => {});
+}
+
+window.addEventListener('scroll', handleScroll, { passive: true });
+window.addEventListener('resize', handleScroll);
+window.addEventListener('touchstart', wakeVideo, { once: true, passive: true });
+
+if (video.readyState >= 1) ready();
+else video.addEventListener('loadedmetadata', ready, { once: true });
+
+wakeVideo();
+handleScroll();
