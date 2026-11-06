@@ -4,4 +4,4 @@ A sample section. Scrolling walks from the storefront, through the lounge, to a 
 
 Live page: https://mina-mehrana-agency.github.io/unique-cake-entrance/
 
-The film downloads in full before the page can scroll, so it always plays smoothly. The camera move is AI-generated from the cafe's real photos, so some details differ from the real room. It is a sample for review and is not meant for search engines. Text and details come from uniquecakeandcafe.online.
+Scrolling works straight away on a light 720p film. On larger screens the 1080p film downloads in the background and takes over from the same spot. The camera move is AI-generated from the cafe's real photos, so some details differ from the real room. It is a sample for review and is not meant for search engines. Text and details come from uniquecakeandcafe.online.
