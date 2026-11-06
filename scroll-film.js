@@ -2,8 +2,10 @@
 // until then the opening picture stays still and the page cannot scroll, so a visitor never
 // sees a half-loaded film. Once it is in memory, every scroll position shows at once.
 
-const FILM_FILE = 'film.mp4';
-const GIVE_UP_MS = 60000; // After this the page opens without the film, so nobody gets stuck.
+const FULL_FILM = 'film.mp4'; // 1080p.
+const LITE_FILM = 'film-lite.mp4'; // 720p, a third of the size, for slow connections.
+const SPEED_CHECK_MS = 1500; // How long to watch the download before judging the connection.
+const LONGEST_WAIT_SECONDS = 18; // A slower full download switches to the light film.
 const SMOOTHING = 0.12; // Share of the remaining distance covered per frame.
 const SEEK_STEP = 1 / 30; // Smallest change in seconds worth a new seek.
 const FADE = 0.04; // Share of the film each caption takes to fade in or out.
@@ -78,14 +80,19 @@ function showDownload(share) {
   if (!state.opened) progressBar.style.transform = `scaleX(${share.toFixed(4)})`;
 }
 
-async function downloadFilm() {
-  const response = await fetch(FILM_FILE);
-  if (!response.ok) throw new Error(`Could not load ${FILM_FILE}`);
+// Downloads a whole film. With a speed check, returns null as soon as it is clear that the
+// rest would take too long, so the caller can fetch the light film instead.
+async function downloadFilm(file, checkSpeed) {
+  const controller = new AbortController();
+  const response = await fetch(file, { signal: controller.signal });
+  if (!response.ok) throw new Error(`Could not load ${file}`);
 
   const total = Number(response.headers.get('Content-Length')) || 0;
   const reader = response.body.getReader();
   const pieces = [];
+  const started = performance.now();
   let received = 0;
+  let judged = !checkSpeed || !total;
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -93,8 +100,25 @@ async function downloadFilm() {
     pieces.push(value);
     received += value.length;
     if (total) showDownload(received / total);
+
+    const elapsed = (performance.now() - started) / 1000;
+    if (!judged && elapsed * 1000 >= SPEED_CHECK_MS) {
+      judged = true;
+      const secondsLeft = (total - received) / (received / elapsed);
+      if (secondsLeft > LONGEST_WAIT_SECONDS) {
+        controller.abort();
+        return null;
+      }
+    }
   }
   return new Blob(pieces, { type: 'video/mp4' });
+}
+
+async function chooseFilm() {
+  const full = await downloadFilm(FULL_FILM, true);
+  if (full) return full;
+  showDownload(0);
+  return downloadFilm(LITE_FILM, false);
 }
 
 // Resolves once the film can show its first frame from memory.
@@ -115,10 +139,7 @@ async function start() {
   window.addEventListener('resize', handleScroll);
   handleScroll();
 
-  // A very slow connection still gets the menu and the visit details, just without the film.
-  setTimeout(openPage, GIVE_UP_MS);
-
-  const blob = await downloadFilm();
+  const blob = await chooseFilm();
   await loadIntoVideo(blob);
   state.duration = video.duration;
   video.classList.add('is-ready');
