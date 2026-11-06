@@ -2,6 +2,7 @@
 
 const SMOOTHING = 0.14; // Share of the remaining distance covered per frame.
 const LOAD_BATCH = 10;
+const WIDE_GAP_BLEND = 0.18; // Share of the gap used for the swap between frames far apart.
 const FADE = 0.04; // Share of the film each caption takes to fade in or out.
 const TRAVEL = 40; // Pixels a caption drifts while it fades.
 
@@ -50,7 +51,15 @@ function drawFilm() {
   if (!before && !after) return;
 
   paint(before ?? after, 1);
-  if (before && after && upper !== lower) paint(after, (state.position - lower) / (upper - lower));
+  if (before && after && upper !== lower) paint(after, blendAmount((state.position - lower) / (upper - lower), upper - lower));
+}
+
+// Neighbouring frames blend fully. Frames far apart would look like a double exposure,
+// so they swap quickly around the midpoint, and a resting picture is never blended.
+function blendAmount(share, gap) {
+  if (state.position === state.target) return share < 0.5 ? 0 : 1;
+  const width = gap > 1 ? WIDE_GAP_BLEND : 1;
+  return Math.min(1, Math.max(0, (share - 0.5) / width + 0.5));
 }
 
 function fitCanvas() {
@@ -114,6 +123,10 @@ async function loadAll() {
   const coarse = Math.ceil(state.total / 8);
   let done = 0;
   while (order.length > 0) {
+    // After the coarse pass, fill in around wherever the visitor is now.
+    if (done >= coarse) {
+      order.sort((a, b) => Math.abs(a - state.target) - Math.abs(b - state.target));
+    }
     const batch = order.splice(0, LOAD_BATCH);
     await Promise.all(batch.map(loadFrame));
     done += batch.length;
